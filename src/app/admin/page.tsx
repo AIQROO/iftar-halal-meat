@@ -25,7 +25,8 @@ export default function AdminLoginPage() {
     try {
       const res = await fetch('/api/auth');
       const data = await res.json();
-      const adminUsers = (data.users || []).filter(
+      const allUsers = Array.isArray(data) ? data : (data.users || []);
+      const adminUsers = allUsers.filter(
         (u: AuthUser) => u.role === 'admin'
       );
       setUsers(adminUsers);
@@ -40,9 +41,40 @@ export default function AdminLoginPage() {
   };
 
   const handleKeypad = (digit: string) => {
-    if (pin.length < 6) {
-      setPin((prev) => prev + digit);
+    if (pin.length < 4) {
+      const newPin = pin + digit;
+      setPin(newPin);
       setError('');
+      if (newPin.length === 4) {
+        setTimeout(() => autoSubmit(newPin), 200);
+      }
+    }
+  };
+
+  const autoSubmit = async (fullPin: string) => {
+    if (!selectedUser) return;
+    setLoading(true);
+    setError('');
+    try {
+      const res = await fetch('/api/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: selectedUser, pin: fullPin }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        localStorage.setItem('user_name', data.user.name);
+        localStorage.setItem('user_pin', fullPin);
+        localStorage.setItem('user_role', data.user.role);
+        router.push('/admin/dashboard');
+      } else {
+        setError('PIN incorrecto');
+        setPin('');
+      }
+    } catch {
+      setError('Error de conexion. Intenta de nuevo.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -148,7 +180,7 @@ export default function AdminLoginPage() {
 
         {/* PIN Display */}
         <div className="flex gap-3 justify-center">
-          {Array.from({ length: 6 }).map((_, i) => (
+          {Array.from({ length: 4 }).map((_, i) => (
             <div
               key={i}
               className={`w-4 h-4 rounded-full border-2 transition-all duration-200 ${
