@@ -346,7 +346,7 @@ export default function POSPage() {
         {view === 'scanning' && (
           <div className="flex-1 flex flex-col gap-4">
             {scannerAvailable ? (
-              <QrScanner onScan={handleScan} />
+              <QrScanner onScan={handleScan} onError={(err) => { setErrorMsg(err); setView('error'); }} />
             ) : (
               <ManualInput onScan={handleScan} />
             )}

@@ -1,26 +1,49 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import type { Product, DashboardStats } from '@/lib/types';
 
 export default function HistorialPage() {
+  const router = useRouter();
   const [ventas, setVentas] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   useEffect(() => {
+    const storedName = localStorage.getItem('user_name');
+    const storedPin = localStorage.getItem('user_pin');
+    if (!storedName || !storedPin) {
+      router.replace('/pos');
+      return;
+    }
+
     async function fetchVentas() {
       try {
-        const res = await fetch('/api/dashboard');
+        const name = localStorage.getItem('user_name') || '';
+        const pin = localStorage.getItem('user_pin') || '';
+        const res = await fetch('/api/dashboard', {
+          headers: { 'x-user-name': name, 'x-user-pin': pin },
+        });
         if (!res.ok) {
+          if (res.status === 401) {
+            router.replace('/pos');
+            return;
+          }
           setError('Error al cargar datos');
           return;
         }
         const data: DashboardStats = await res.json();
 
         // Filter to today's sold products
-        const hoy = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+        // fecha_venta is stored in es-MX locale format (DD/MM/YYYY)
+        const now = new Date();
+        const hoy = now.toLocaleDateString('es-MX', {
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+        });
         const ventasHoy = data.productos.filter(
           (p) => p.estatus === 'Vendido' && p.fecha_venta === hoy
         );
@@ -41,7 +64,7 @@ export default function HistorialPage() {
     }
 
     fetchVentas();
-  }, []);
+  }, [router]);
 
   const totalVentas = ventas.reduce((sum, p) => sum + p.precio_total, 0);
   const totalPeso = ventas.reduce((sum, p) => sum + p.peso_kg, 0);

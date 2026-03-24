@@ -26,6 +26,14 @@ export async function POST(request: Request) {
     const archive = archiver('zip', { zlib: { level: 9 } });
     archive.pipe(passthrough);
 
+    // Set up the end/error promise BEFORE generating data to avoid
+    // a race condition where the stream ends before the listener is attached.
+    const streamDone = new Promise<void>((resolve, reject) => {
+      passthrough.on('end', resolve);
+      passthrough.on('error', reject);
+      archive.on('error', reject);
+    });
+
     // Generate QR codes and add to archive
     for (let i = 0; i < cantidad; i++) {
       const num = inicio + i;
@@ -42,10 +50,7 @@ export async function POST(request: Request) {
     await archive.finalize();
 
     // Wait for all data to be collected
-    await new Promise<void>((resolve, reject) => {
-      passthrough.on('end', resolve);
-      passthrough.on('error', reject);
-    });
+    await streamDone;
 
     const zipBuffer = Buffer.concat(chunks);
 
