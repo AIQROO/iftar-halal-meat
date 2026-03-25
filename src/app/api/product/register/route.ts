@@ -4,7 +4,7 @@ import { registerProduct } from '@/lib/sheets';
 
 export async function POST(request: Request) {
   try {
-    const user = getUserFromRequest(request);
+    const user = await getUserFromRequest(request);
     if (!user || user.role !== 'admin') {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }

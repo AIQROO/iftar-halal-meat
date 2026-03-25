@@ -10,7 +10,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Missing required fields: name, pin' }, { status: 400 });
     }
 
-    const user = authenticateUser(name, pin);
+    const user = await authenticateUser(name, pin);
 
     if (user) {
       return NextResponse.json(
@@ -28,7 +28,7 @@ export async function POST(request: Request) {
 
 export async function GET() {
   try {
-    const users = getUsers();
+    const users = await getUsers();
     return NextResponse.json(users, { status: 200 });
   } catch (error) {
     console.error('Error fetching users:', error);

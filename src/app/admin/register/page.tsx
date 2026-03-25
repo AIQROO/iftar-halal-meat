@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import type { Product, Price } from '@/lib/types';
+import type { Product, PriceCategory, Price } from '@/lib/types';
 import QrScanner from '@/components/QrScanner';
 
 type RegisterStep = 'scan' | 'form' | 'success';
@@ -13,7 +13,8 @@ export default function RegisterPage() {
   const [qrId, setQrId] = useState('');
   const [tipoCarne, setTipoCarne] = useState('');
   const [pesoKg, setPesoKg] = useState('');
-  const [prices, setPrices] = useState<Price[]>([]);
+  const [categories, setCategories] = useState<PriceCategory[]>([]);
+  const [allPrices, setAllPrices] = useState<Price[]>([]);
   const [registeredProduct, setRegisteredProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -39,15 +40,28 @@ export default function RegisterPage() {
         headers: { 'x-user-name': name, 'x-user-pin': pin },
       });
       if (res.ok) {
-        const data: Price[] = await res.json();
-        setPrices(data);
-        if (data.length > 0) {
-          setTipoCarne(data[0].tipo_carne);
+        const data: PriceCategory[] = await res.json();
+        setCategories(data);
+        // Flatten all prices for lookup
+        const flat = data.flatMap((cat) => cat.productos);
+        setAllPrices(flat);
+        if (flat.length > 0) {
+          setTipoCarne(flat[0].nombre);
         }
       }
     } catch {
       // Prices will remain empty; user can still type
     }
+  };
+
+  const getSelectedPrice = (): Price | undefined => {
+    return allPrices.find((p) => p.nombre === tipoCarne);
+  };
+
+  const getEffectivePrice = (): number => {
+    const p = getSelectedPrice();
+    if (!p) return 0;
+    return p.precio_local > 0 ? p.precio_local : p.precio_mxn;
   };
 
   const handleScan = (result: string) => {
@@ -111,7 +125,7 @@ export default function RegisterPage() {
   const handleReset = () => {
     setStep('scan');
     setQrId('');
-    setTipoCarne(prices.length > 0 ? prices[0].tipo_carne : '');
+    setTipoCarne(allPrices.length > 0 ? allPrices[0].nombre : '');
     setPesoKg('');
     setRegisteredProduct(null);
     setError('');
@@ -196,20 +210,27 @@ export default function RegisterPage() {
             </div>
           </div>
 
-          {/* Tipo de carne */}
+          {/* Tipo de carne - grouped by category */}
           <div>
             <label className="block text-sm font-medium text-gray-400 mb-1.5">
-              Tipo de Carne
+              Producto
             </label>
             <select
               value={tipoCarne}
               onChange={(e) => setTipoCarne(e.target.value)}
               className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 appearance-none"
             >
-              {prices.map((p) => (
-                <option key={p.tipo_carne} value={p.tipo_carne}>
-                  {p.tipo_carne} - ${p.precio_por_kg.toFixed(2)}/kg
-                </option>
+              {categories.map((cat) => (
+                <optgroup key={cat.categoria} label={cat.categoria}>
+                  {cat.productos.map((p) => {
+                    const effectivePrice = p.precio_local > 0 ? p.precio_local : p.precio_mxn;
+                    return (
+                      <option key={p.nombre} value={p.nombre}>
+                        {p.nombre} - ${effectivePrice}/{p.unidad}
+                      </option>
+                    );
+                  })}
+                </optgroup>
               ))}
             </select>
           </div>
@@ -233,16 +254,19 @@ export default function RegisterPage() {
           {/* Price preview */}
           {pesoKg && tipoCarne && (
             <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-3">
-              <p className="text-amber-400 text-sm">
-                Precio estimado:{' '}
-                <span className="font-bold text-lg">
-                  $
-                  {(
-                    parseFloat(pesoKg) *
-                    (prices.find((p) => p.tipo_carne === tipoCarne)?.precio_por_kg ?? 0)
-                  ).toFixed(2)}
+              <div className="flex justify-between items-center">
+                <p className="text-amber-400 text-sm">
+                  Precio estimado:
+                </p>
+                <span className="font-bold text-lg text-amber-400">
+                  ${(parseFloat(pesoKg) * getEffectivePrice()).toFixed(2)}
                 </span>
-              </p>
+              </div>
+              {getSelectedPrice() && (
+                <p className="text-gray-500 text-xs mt-1">
+                  {getSelectedPrice()!.nombre} &middot; ${getEffectivePrice()}/{getSelectedPrice()!.unidad}
+                </p>
+              )}
             </div>
           )}
 
@@ -301,7 +325,7 @@ export default function RegisterPage() {
               </span>
             </div>
             <div className="flex justify-between items-center p-4">
-              <span className="text-gray-400 text-sm">Tipo de Carne</span>
+              <span className="text-gray-400 text-sm">Producto</span>
               <span className="text-white font-medium">
                 {registeredProduct.tipo_carne}
               </span>

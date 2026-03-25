@@ -1,5 +1,5 @@
 import { google, sheets_v4 } from 'googleapis';
-import { Product, Price, DashboardStats } from './types';
+import { Product, Price, PriceCategory, DashboardStats } from './types';
 
 const SPREADSHEET_ID = process.env.SPREADSHEET_ID || '1NWuW5i-ExtqAKjhuLEMeoxz9muh-Lybe9KS5MDXdC28';
 
@@ -33,57 +33,122 @@ export async function getSheets(): Promise<sheets_v4.Sheets> {
   return google.sheets({ version: 'v4', auth });
 }
 
+// New Precios structure: A=categoria, B=nombre, C=nombre_en, D=unidad, E=precio_mxn, F=precio_local
 export async function getPrices(): Promise<Price[]> {
   const sheets = await getSheets();
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: SPREADSHEET_ID,
-    range: 'Precios!A2:B',
+    range: 'Precios!A2:F',
   });
 
   const rows = response.data.values || [];
   return rows.map((row) => ({
-    tipo_carne: row[0] || '',
-    precio_por_kg: parseFloat(row[1]) || 0,
+    categoria: row[0] || '',
+    nombre: row[1] || '',
+    nombre_en: row[2] || '',
+    unidad: row[3] || '',
+    precio_mxn: parseFloat(row[4]) || 0,
+    precio_local: parseFloat(row[5]) || 0,
   }));
 }
 
-export async function updatePrice(tipo_carne: string, precio_por_kg: number): Promise<void> {
+export async function getPricesGrouped(): Promise<PriceCategory[]> {
+  const prices = await getPrices();
+  const categoryMap = new Map<string, Price[]>();
+
+  for (const price of prices) {
+    if (!categoryMap.has(price.categoria)) {
+      categoryMap.set(price.categoria, []);
+    }
+    categoryMap.get(price.categoria)!.push(price);
+  }
+
+  const categories: PriceCategory[] = [];
+  for (const [categoria, productos] of categoryMap) {
+    categories.push({ categoria, productos });
+  }
+
+  return categories;
+}
+
+export async function updatePrice(
+  nombre: string,
+  precio_mxn?: number,
+  precio_local?: number
+): Promise<void> {
   const sheets = await getSheets();
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: SPREADSHEET_ID,
-    range: 'Precios!A2:B',
+    range: 'Precios!A2:F',
   });
 
   const rows = response.data.values || [];
   let rowIndex = -1;
   for (let i = 0; i < rows.length; i++) {
-    if (rows[i][0] === tipo_carne) {
+    if (rows[i][1] === nombre) {
       rowIndex = i + 2; // +2 because data starts at row 2 (1-indexed)
       break;
     }
   }
 
   if (rowIndex === -1) {
-    // Append new price row
-    await sheets.spreadsheets.values.append({
-      spreadsheetId: SPREADSHEET_ID,
-      range: 'Precios!A:B',
-      valueInputOption: 'USER_ENTERED',
-      requestBody: {
-        values: [[tipo_carne, precio_por_kg]],
-      },
-    });
-  } else {
-    // Update existing row
-    await sheets.spreadsheets.values.update({
-      spreadsheetId: SPREADSHEET_ID,
-      range: `Precios!A${rowIndex}:B${rowIndex}`,
-      valueInputOption: 'USER_ENTERED',
-      requestBody: {
-        values: [[tipo_carne, precio_por_kg]],
-      },
-    });
+    throw new Error(`Product "${nombre}" not found in Precios sheet`);
   }
+
+  // Update only the price columns (E and F)
+  const currentMxn = parseFloat(rows[rowIndex - 2][4]) || 0;
+  const currentLocal = parseFloat(rows[rowIndex - 2][5]) || 0;
+
+  const newMxn = precio_mxn !== undefined ? precio_mxn : currentMxn;
+  const newLocal = precio_local !== undefined ? precio_local : currentLocal;
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `Precios!E${rowIndex}:F${rowIndex}`,
+    valueInputOption: 'USER_ENTERED',
+    requestBody: {
+      values: [[newMxn, newLocal]],
+    },
+  });
+}
+
+export async function seedPrices(data: Price[]): Promise<void> {
+  const sheets = await getSheets();
+
+  // Clear existing data (keep header)
+  await sheets.spreadsheets.values.clear({
+    spreadsheetId: SPREADSHEET_ID,
+    range: 'Precios!A2:F',
+  });
+
+  // Write header
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: SPREADSHEET_ID,
+    range: 'Precios!A1:F1',
+    valueInputOption: 'USER_ENTERED',
+    requestBody: {
+      values: [['categoria', 'nombre', 'nombre_en', 'unidad', 'precio_mxn', 'precio_local']],
+    },
+  });
+
+  // Write all product rows
+  const rows = data.map((p) => [
+    p.categoria,
+    p.nombre,
+    p.nombre_en,
+    p.unidad,
+    p.precio_mxn,
+    p.precio_local || '',
+  ]);
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `Precios!A2:F${rows.length + 1}`,
+    valueInputOption: 'USER_ENTERED',
+    requestBody: {
+      values: rows,
+    },
+  });
 }
 
 export async function getProduct(qrId: string): Promise<Product | null> {
@@ -110,8 +175,11 @@ export async function registerProduct(
   registradoPor: string
 ): Promise<Product> {
   const prices = await getPrices();
-  const priceEntry = prices.find((p) => p.tipo_carne === tipoCarne);
-  const precioKg = priceEntry ? priceEntry.precio_por_kg : 0;
+  // Find price by product name, use precio_local if set, otherwise precio_mxn
+  const priceEntry = prices.find((p) => p.nombre === tipoCarne);
+  const precioKg = priceEntry
+    ? (priceEntry.precio_local > 0 ? priceEntry.precio_local : priceEntry.precio_mxn)
+    : 0;
   const precioTotal = pesoKg * precioKg;
 
   const now = new Date();

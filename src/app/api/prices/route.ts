@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server';
 import { isAdmin } from '@/lib/auth';
-import { getPrices, updatePrice } from '@/lib/sheets';
+import { getPricesGrouped, updatePrice } from '@/lib/sheets';
 
 export async function GET() {
   try {
-    const prices = await getPrices();
-    return NextResponse.json(prices, { status: 200 });
+    const categories = await getPricesGrouped();
+    return NextResponse.json(categories, { status: 200 });
   } catch (error) {
     console.error('Error fetching prices:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
@@ -14,21 +14,28 @@ export async function GET() {
 
 export async function PUT(request: Request) {
   try {
-    if (!isAdmin(request)) {
+    if (!(await isAdmin(request))) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const body = await request.json();
-    const { tipo_carne, precio_por_kg } = body;
+    const { nombre, precio_mxn, precio_local } = body;
 
-    if (!tipo_carne || precio_por_kg === undefined) {
+    if (!nombre) {
       return NextResponse.json(
-        { error: 'Missing required fields: tipo_carne, precio_por_kg' },
+        { error: 'Missing required field: nombre' },
         { status: 400 }
       );
     }
 
-    await updatePrice(tipo_carne, precio_por_kg);
+    if (precio_mxn === undefined && precio_local === undefined) {
+      return NextResponse.json(
+        { error: 'Must provide at least one price to update' },
+        { status: 400 }
+      );
+    }
+
+    await updatePrice(nombre, precio_mxn, precio_local);
 
     return NextResponse.json(
       { success: true, message: 'Price updated successfully' },

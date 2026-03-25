@@ -1,23 +1,48 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import type { Price } from '@/lib/types';
+import type { PriceCategory, Price } from '@/lib/types';
 
-interface PriceRow extends Price {
-  isNew?: boolean;
+interface EditablePrice extends Price {
   saving?: boolean;
   saved?: boolean;
 }
 
 export default function PricesPage() {
   const router = useRouter();
-  const [prices, setPrices] = useState<PriceRow[]>([]);
+  const [categories, setCategories] = useState<{ categoria: string; productos: EditablePrice[] }[]>([]);
+  const [expandedCats, setExpandedCats] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
+  const [seeding, setSeeding] = useState(false);
   const [error, setError] = useState('');
   const [userName, setUserName] = useState('');
   const [userPin, setUserPin] = useState('');
   const [toast, setToast] = useState('');
+
+  const fetchPrices = useCallback(async () => {
+    try {
+      const name = localStorage.getItem('user_name') || '';
+      const pin = localStorage.getItem('user_pin') || '';
+      const res = await fetch('/api/prices', {
+        headers: { 'x-user-name': name, 'x-user-pin': pin },
+      });
+      if (!res.ok) throw new Error();
+      const data: PriceCategory[] = await res.json();
+      setCategories(data.map((cat) => ({
+        categoria: cat.categoria,
+        productos: cat.productos.map((p) => ({ ...p })),
+      })));
+      // Expand first category by default
+      if (data.length > 0 && expandedCats.size === 0) {
+        setExpandedCats(new Set([data[0].categoria]));
+      }
+    } catch {
+      setError('No se pudieron cargar los precios');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     const storedName = localStorage.getItem('user_name');
@@ -28,67 +53,50 @@ export default function PricesPage() {
     setUserName(storedName);
     setUserPin(localStorage.getItem('user_pin') || '');
     fetchPrices();
-  }, [router]);
-
-  const fetchPrices = async () => {
-    try {
-      const name = localStorage.getItem('user_name') || '';
-      const pin = localStorage.getItem('user_pin') || '';
-      const res = await fetch('/api/prices', {
-        headers: { 'x-user-name': name, 'x-user-pin': pin },
-      });
-      if (!res.ok) throw new Error();
-      const data: Price[] = await res.json();
-      setPrices(data.map((p) => ({ ...p })));
-    } catch {
-      setError('No se pudieron cargar los precios');
-    } finally {
-      setLoading(false);
-    }
-  };
+  }, [router, fetchPrices]);
 
   const showToast = (message: string) => {
     setToast(message);
     setTimeout(() => setToast(''), 3000);
   };
 
-  const handlePriceChange = (index: number, value: string) => {
-    setPrices((prev) => {
+  const toggleCategory = (cat: string) => {
+    setExpandedCats((prev) => {
+      const next = new Set(prev);
+      if (next.has(cat)) {
+        next.delete(cat);
+      } else {
+        next.add(cat);
+      }
+      return next;
+    });
+  };
+
+  const handlePriceChange = (catIndex: number, prodIndex: number, field: 'precio_mxn' | 'precio_local', value: string) => {
+    setCategories((prev) => {
       const updated = [...prev];
-      updated[index] = {
-        ...updated[index],
-        precio_por_kg: parseFloat(value) || 0,
-        saved: false,
-      };
+      const cat = { ...updated[catIndex] };
+      const prods = [...cat.productos];
+      prods[prodIndex] = { ...prods[prodIndex], [field]: parseFloat(value) || 0, saved: false };
+      cat.productos = prods;
+      updated[catIndex] = cat;
       return updated;
     });
   };
 
-  const handleNameChange = (index: number, value: string) => {
-    setPrices((prev) => {
-      const updated = [...prev];
-      updated[index] = { ...updated[index], tipo_carne: value, saved: false };
-      return updated;
-    });
-  };
-
-  const handleSave = async (index: number) => {
-    const price = prices[index];
-    if (!price.tipo_carne.trim()) {
-      setError('El nombre del tipo de carne no puede estar vacio');
-      return;
-    }
-    if (price.precio_por_kg <= 0) {
-      setError('El precio debe ser mayor a 0');
-      return;
-    }
-
-    setPrices((prev) => {
-      const updated = [...prev];
-      updated[index] = { ...updated[index], saving: true };
-      return updated;
-    });
+  const handleSave = async (catIndex: number, prodIndex: number) => {
+    const product = categories[catIndex].productos[prodIndex];
     setError('');
+
+    setCategories((prev) => {
+      const updated = [...prev];
+      const cat = { ...updated[catIndex] };
+      const prods = [...cat.productos];
+      prods[prodIndex] = { ...prods[prodIndex], saving: true };
+      cat.productos = prods;
+      updated[catIndex] = cat;
+      return updated;
+    });
 
     try {
       const res = await fetch('/api/prices', {
@@ -99,8 +107,9 @@ export default function PricesPage() {
           'x-user-pin': userPin,
         },
         body: JSON.stringify({
-          tipo_carne: price.tipo_carne,
-          precio_por_kg: price.precio_por_kg,
+          nombre: product.nombre,
+          precio_mxn: product.precio_mxn,
+          precio_local: product.precio_local,
         }),
       });
 
@@ -109,36 +118,69 @@ export default function PricesPage() {
         throw new Error(data.error || 'Error al guardar');
       }
 
-      setPrices((prev) => {
+      setCategories((prev) => {
         const updated = [...prev];
-        updated[index] = {
-          ...updated[index],
-          saving: false,
-          saved: true,
-          isNew: false,
-        };
+        const cat = { ...updated[catIndex] };
+        const prods = [...cat.productos];
+        prods[prodIndex] = { ...prods[prodIndex], saving: false, saved: true };
+        cat.productos = prods;
+        updated[catIndex] = cat;
         return updated;
       });
-      showToast(`Precio de "${price.tipo_carne}" guardado`);
+      showToast(`"${product.nombre}" guardado`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al guardar precio');
-      setPrices((prev) => {
+      setCategories((prev) => {
         const updated = [...prev];
-        updated[index] = { ...updated[index], saving: false };
+        const cat = { ...updated[catIndex] };
+        const prods = [...cat.productos];
+        prods[prodIndex] = { ...prods[prodIndex], saving: false };
+        cat.productos = prods;
+        updated[catIndex] = cat;
         return updated;
       });
     }
   };
 
-  const handleAddType = () => {
-    setPrices((prev) => [
-      ...prev,
-      { tipo_carne: '', precio_por_kg: 0, isNew: true },
-    ]);
+  const handleSeed = async () => {
+    if (!confirm('Esto reemplazara todos los precios actuales con el catalogo completo. Continuar?')) return;
+    setSeeding(true);
+    setError('');
+    try {
+      const res = await fetch('/api/prices/seed', {
+        method: 'POST',
+        headers: {
+          'x-user-name': userName,
+          'x-user-pin': userPin,
+        },
+      });
+      if (!res.ok) throw new Error('Error al poblar precios');
+      const data = await res.json();
+      showToast(`${data.count} productos cargados`);
+      await fetchPrices();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error al poblar precios');
+    } finally {
+      setSeeding(false);
+    }
   };
 
-  const handleRemoveNew = (index: number) => {
-    setPrices((prev) => prev.filter((_, i) => i !== index));
+  const getCategoryIcon = (cat: string) => {
+    if (cat.includes('Pollo')) return 'chicken';
+    if (cat.includes('Cordero')) return 'lamb';
+    if (cat.includes('Black Angus')) return 'angus';
+    if (cat.includes('Premium') || cat.includes('Prime')) return 'premium';
+    if (cat.includes('Especial')) return 'special';
+    return 'beef';
+  };
+
+  const getCategoryColor = (cat: string) => {
+    if (cat.includes('Pollo')) return 'amber';
+    if (cat.includes('Cordero')) return 'orange';
+    if (cat.includes('Black Angus')) return 'purple';
+    if (cat.includes('Premium') || cat.includes('Prime')) return 'rose';
+    if (cat.includes('Especial')) return 'teal';
+    return 'red';
   };
 
   if (loading) {
@@ -155,8 +197,10 @@ export default function PricesPage() {
     );
   }
 
+  const totalProducts = categories.reduce((sum, cat) => sum + cat.productos.length, 0);
+
   return (
-    <div className="max-w-md mx-auto px-4 py-6">
+    <div className="max-w-md mx-auto px-4 py-6 pb-24">
       {/* Toast */}
       {toast && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-emerald-500 text-white px-5 py-3 rounded-xl shadow-lg font-medium text-sm animate-fade-in">
@@ -173,9 +217,15 @@ export default function PricesPage() {
       </button>
 
       {/* Header */}
-      <div className="flex items-center gap-3 mb-6">
-        <h1 className="text-2xl font-bold text-white">Configurar Precios</h1>
+      <div className="flex items-center justify-between mb-2">
+        <h1 className="text-2xl font-bold text-white">Precios</h1>
+        <span className="text-xs text-gray-500 bg-gray-800 px-2 py-1 rounded-lg">
+          {totalProducts} productos
+        </span>
       </div>
+      <p className="text-gray-500 text-sm mb-5">
+        Toca una categoria para ver y editar precios
+      </p>
 
       {error && (
         <div className="mb-4 p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
@@ -183,112 +233,165 @@ export default function PricesPage() {
         </div>
       )}
 
-      {/* Price List */}
-      <div className="flex flex-col gap-3 mb-6">
-        {prices.length === 0 && (
-          <div className="bg-gray-900 rounded-xl p-8 text-center border border-gray-800">
-            <p className="text-gray-500">No hay tipos de carne configurados</p>
-          </div>
-        )}
-
-        {prices.map((price, index) => (
-          <div
-            key={`${price.tipo_carne}-${index}`}
-            className={`bg-gray-900 rounded-xl border p-4 transition-colors ${
-              price.saved
-                ? 'border-emerald-500/30'
-                : 'border-gray-800'
-            }`}
+      {/* No data - seed button */}
+      {categories.length === 0 && (
+        <div className="bg-gray-900 rounded-xl p-8 text-center border border-gray-800 mb-4">
+          <p className="text-gray-500 mb-4">No hay productos configurados</p>
+          <button
+            type="button"
+            onClick={handleSeed}
+            disabled={seeding}
+            className="px-6 py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-gray-950 font-bold transition-colors disabled:opacity-40"
           >
-            {price.isNew ? (
-              <div className="mb-3">
-                <label className="block text-xs font-medium text-gray-500 mb-1">
-                  Nombre del tipo
-                </label>
-                <input
-                  type="text"
-                  value={price.tipo_carne}
-                  onChange={(e) => handleNameChange(index, e.target.value)}
-                  placeholder="Ej: Res, Pollo, Cordero..."
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white placeholder-gray-600 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 text-sm"
-                />
-              </div>
-            ) : (
-              <p className="text-white font-semibold mb-3">{price.tipo_carne}</p>
-            )}
+            {seeding ? 'Cargando catalogo...' : 'Cargar Catalogo Completo'}
+          </button>
+        </div>
+      )}
 
-            <div className="flex items-end gap-3">
-              <div className="flex-1">
-                <label className="block text-xs font-medium text-gray-500 mb-1">
-                  Precio por kg
-                </label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 font-medium">
-                    $
+      {/* Category Accordions */}
+      <div className="flex flex-col gap-3">
+        {categories.map((cat, catIndex) => {
+          const isExpanded = expandedCats.has(cat.categoria);
+          const color = getCategoryColor(cat.categoria);
+          const icon = getCategoryIcon(cat.categoria);
+          const colorClasses: Record<string, { bg: string; text: string; border: string; badge: string }> = {
+            amber: { bg: 'bg-amber-500/10', text: 'text-amber-400', border: 'border-amber-500/20', badge: 'bg-amber-500/20' },
+            red: { bg: 'bg-red-500/10', text: 'text-red-400', border: 'border-red-500/20', badge: 'bg-red-500/20' },
+            rose: { bg: 'bg-rose-500/10', text: 'text-rose-400', border: 'border-rose-500/20', badge: 'bg-rose-500/20' },
+            purple: { bg: 'bg-purple-500/10', text: 'text-purple-400', border: 'border-purple-500/20', badge: 'bg-purple-500/20' },
+            orange: { bg: 'bg-orange-500/10', text: 'text-orange-400', border: 'border-orange-500/20', badge: 'bg-orange-500/20' },
+            teal: { bg: 'bg-teal-500/10', text: 'text-teal-400', border: 'border-teal-500/20', badge: 'bg-teal-500/20' },
+          };
+          const c = colorClasses[color] || colorClasses.red;
+
+          return (
+            <div key={cat.categoria} className="rounded-xl overflow-hidden">
+              {/* Category header - tap to expand */}
+              <button
+                type="button"
+                onClick={() => toggleCategory(cat.categoria)}
+                className={`w-full flex items-center justify-between p-4 ${c.bg} border ${c.border} ${isExpanded ? 'rounded-t-xl border-b-0' : 'rounded-xl'} transition-colors`}
+              >
+                <div className="flex items-center gap-3">
+                  <span className={`text-lg ${c.text}`}>
+                    {icon === 'chicken' && '\u{1F414}'}
+                    {icon === 'beef' && '\u{1F969}'}
+                    {icon === 'premium' && '\u{2B50}'}
+                    {icon === 'angus' && '\u{1F404}'}
+                    {icon === 'lamb' && '\u{1F411}'}
+                    {icon === 'special' && '\u{1F354}'}
                   </span>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={price.precio_por_kg || ''}
-                    onChange={(e) => handlePriceChange(index, e.target.value)}
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg pl-7 pr-3 py-2.5 text-white focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
-                  />
+                  <div className="text-left">
+                    <p className={`font-semibold ${c.text}`}>{cat.categoria}</p>
+                    <p className="text-gray-500 text-xs">{cat.productos.length} productos</p>
+                  </div>
                 </div>
-              </div>
-
-              <div className="flex gap-2">
-                {price.isNew && (
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveNew(index)}
-                    className="min-h-10 px-3 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-400 font-medium text-sm transition-colors"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => handleSave(index)}
-                  disabled={price.saving}
-                  className={`min-h-10 px-4 rounded-lg font-semibold text-sm transition-colors disabled:opacity-40 ${
-                    price.saved
-                      ? 'bg-emerald-500/20 text-emerald-400'
-                      : 'bg-amber-500 hover:bg-amber-400 text-gray-950'
-                  }`}
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className={`h-5 w-5 ${c.text} transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2}
                 >
-                  {price.saving ? (
-                    <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                    </svg>
-                  ) : price.saved ? (
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                    </svg>
-                  ) : (
-                    'Guardar'
-                  )}
-                </button>
-              </div>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+
+              {/* Products list */}
+              {isExpanded && (
+                <div className={`border ${c.border} border-t-0 rounded-b-xl bg-gray-900/50 divide-y divide-gray-800/50`}>
+                  {cat.productos.map((product, prodIndex) => (
+                    <div key={product.nombre} className="p-4">
+                      {/* Product name */}
+                      <div className="flex items-start justify-between mb-3">
+                        <div>
+                          <p className="text-white font-medium text-sm">{product.nombre}</p>
+                          <p className="text-gray-500 text-xs">{product.nombre_en} &middot; {product.unidad}</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleSave(catIndex, prodIndex)}
+                          disabled={product.saving}
+                          className={`min-h-8 px-3 rounded-lg font-semibold text-xs transition-colors disabled:opacity-40 ${
+                            product.saved
+                              ? 'bg-emerald-500/20 text-emerald-400'
+                              : 'bg-amber-500 hover:bg-amber-400 text-gray-950'
+                          }`}
+                        >
+                          {product.saving ? (
+                            <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                            </svg>
+                          ) : product.saved ? (
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                            </svg>
+                          ) : (
+                            'Guardar'
+                          )}
+                        </button>
+                      </div>
+
+                      {/* Price inputs side by side */}
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-[10px] font-medium text-gray-500 mb-1 uppercase tracking-wider">
+                            Precio MXN
+                          </label>
+                          <div className="relative">
+                            <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500 text-sm">$</span>
+                            <input
+                              type="number"
+                              step="1"
+                              min="0"
+                              value={product.precio_mxn || ''}
+                              onChange={(e) => handlePriceChange(catIndex, prodIndex, 'precio_mxn', e.target.value)}
+                              className="w-full bg-gray-800 border border-gray-700 rounded-lg pl-6 pr-2 py-2 text-white text-sm focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
+                            />
+                          </div>
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-medium text-gray-500 mb-1 uppercase tracking-wider">
+                            Precio Local
+                          </label>
+                          <div className="relative">
+                            <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500 text-sm">$</span>
+                            <input
+                              type="number"
+                              step="1"
+                              min="0"
+                              value={product.precio_local || ''}
+                              onChange={(e) => handlePriceChange(catIndex, prodIndex, 'precio_local', e.target.value)}
+                              placeholder="--"
+                              className="w-full bg-gray-800 border border-gray-700 rounded-lg pl-6 pr-2 py-2 text-white text-sm focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 placeholder-gray-600"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
-      {/* Add new type button */}
-      <button
-        type="button"
-        onClick={handleAddType}
-        className="w-full min-h-12 rounded-xl border-2 border-dashed border-gray-700 hover:border-amber-500/50 text-gray-400 hover:text-amber-500 font-semibold transition-colors flex items-center justify-center gap-2"
-      >
-        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-        </svg>
-        Agregar Tipo de Carne
-      </button>
+      {/* Seed button at bottom if data exists */}
+      {categories.length > 0 && (
+        <div className="mt-6 pt-4 border-t border-gray-800">
+          <button
+            type="button"
+            onClick={handleSeed}
+            disabled={seeding}
+            className="w-full min-h-12 rounded-xl border-2 border-dashed border-gray-700 hover:border-red-500/50 text-gray-500 hover:text-red-400 font-medium text-sm transition-colors disabled:opacity-40"
+          >
+            {seeding ? 'Recargando catalogo...' : 'Recargar Catalogo (reemplaza todo)'}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

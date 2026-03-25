@@ -15,8 +15,17 @@ export interface Product {
 }
 
 export interface Price {
-  tipo_carne: string;
-  precio_por_kg: number;
+  categoria: string;
+  nombre: string;
+  nombre_en: string;
+  unidad: string;
+  precio_mxn: number;
+  precio_local: number;
+}
+
+export interface PriceCategory {
+  categoria: string;
+  productos: Price[];
 }
 
 export interface DashboardStats {
