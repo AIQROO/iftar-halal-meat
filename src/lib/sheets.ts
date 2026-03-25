@@ -2,6 +2,26 @@ import { google, sheets_v4 } from 'googleapis';
 import { Product, Price, PriceCategory, DashboardStats, LocalCustomer } from './types';
 
 const SPREADSHEET_ID = process.env.SPREADSHEET_ID || '1NWuW5i-ExtqAKjhuLEMeoxz9muh-Lybe9KS5MDXdC28';
+const TIMEZONE = 'America/Cancun';
+
+function getNowDate(): string {
+  return new Date().toLocaleDateString('es-MX', {
+    timeZone: TIMEZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+}
+
+function getNowTime(): string {
+  return new Date().toLocaleTimeString('es-MX', {
+    timeZone: TIMEZONE,
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  });
+}
 
 export async function getSheets(): Promise<sheets_v4.Sheets> {
   let email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
@@ -178,12 +198,7 @@ export async function registerLocal(
 ): Promise<LocalCustomer> {
   const sheets = await getSheets();
 
-  const now = new Date();
-  const fecha = now.toLocaleDateString('es-MX', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  });
+  const fecha = getNowDate();
 
   await sheets.spreadsheets.values.append({
     spreadsheetId: SPREADSHEET_ID,
@@ -228,18 +243,8 @@ export async function registerProduct(
   const precioKg = priceEntry ? priceEntry.precio_mxn : 0;
   const precioTotal = pesoKg * precioKg;
 
-  const now = new Date();
-  const fechaRegistro = now.toLocaleDateString('es-MX', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  });
-  const horaRegistro = now.toLocaleTimeString('es-MX', {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-  });
+  const fechaRegistro = getNowDate();
+  const horaRegistro = getNowTime();
 
   const sheets = await getSheets();
   await sheets.spreadsheets.values.append({
@@ -332,18 +337,8 @@ export async function markSold(
     }
   }
 
-  const now = new Date();
-  const fechaVenta = now.toLocaleDateString('es-MX', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  });
-  const horaVenta = now.toLocaleTimeString('es-MX', {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-  });
+  const fechaVenta = getNowDate();
+  const horaVenta = getNowTime();
 
   // Update estatus (F), fecha_venta (J), hora_venta (K), vendido_por (L), tipo_precio (N), cliente_tel (O)
   await sheets.spreadsheets.values.update({
