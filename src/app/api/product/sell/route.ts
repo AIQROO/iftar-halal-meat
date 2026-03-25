@@ -10,14 +10,14 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { qr_id, vendido_por } = body;
+    const { qr_id, vendido_por, tipo_precio, cliente_tel } = body;
 
     if (!qr_id) {
       return NextResponse.json({ error: 'Missing required field: qr_id' }, { status: 400 });
     }
 
     const seller = vendido_por || user.name;
-    await markSold(qr_id, seller);
+    await markSold(qr_id, seller, tipo_precio, cliente_tel);
 
     return NextResponse.json({ success: true, message: 'Product marked as sold' }, { status: 200 });
   } catch (error) {

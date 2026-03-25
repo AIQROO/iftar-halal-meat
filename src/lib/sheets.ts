@@ -1,5 +1,5 @@
 import { google, sheets_v4 } from 'googleapis';
-import { Product, Price, PriceCategory, DashboardStats } from './types';
+import { Product, Price, PriceCategory, DashboardStats, LocalCustomer } from './types';
 
 const SPREADSHEET_ID = process.env.SPREADSHEET_ID || '1NWuW5i-ExtqAKjhuLEMeoxz9muh-Lybe9KS5MDXdC28';
 
@@ -33,7 +33,8 @@ export async function getSheets(): Promise<sheets_v4.Sheets> {
   return google.sheets({ version: 'v4', auth });
 }
 
-// New Precios structure: A=categoria, B=nombre, C=nombre_en, D=unidad, E=precio_mxn, F=precio_local
+// ── Precios ──────────────────────────────────────────────────────────────────
+
 export async function getPrices(): Promise<Price[]> {
   const sheets = await getSheets();
   const response = await sheets.spreadsheets.values.get({
@@ -86,7 +87,7 @@ export async function updatePrice(
   let rowIndex = -1;
   for (let i = 0; i < rows.length; i++) {
     if (rows[i][1] === nombre) {
-      rowIndex = i + 2; // +2 because data starts at row 2 (1-indexed)
+      rowIndex = i + 2;
       break;
     }
   }
@@ -95,7 +96,6 @@ export async function updatePrice(
     throw new Error(`Product "${nombre}" not found in Precios sheet`);
   }
 
-  // Update only the price columns (E and F)
   const currentMxn = parseFloat(rows[rowIndex - 2][4]) || 0;
   const currentLocal = parseFloat(rows[rowIndex - 2][5]) || 0;
 
@@ -115,13 +115,11 @@ export async function updatePrice(
 export async function seedPrices(data: Price[]): Promise<void> {
   const sheets = await getSheets();
 
-  // Clear existing data (keep header)
   await sheets.spreadsheets.values.clear({
     spreadsheetId: SPREADSHEET_ID,
     range: 'Precios!A2:F',
   });
 
-  // Write header
   await sheets.spreadsheets.values.update({
     spreadsheetId: SPREADSHEET_ID,
     range: 'Precios!A1:F1',
@@ -131,7 +129,6 @@ export async function seedPrices(data: Price[]): Promise<void> {
     },
   });
 
-  // Write all product rows
   const rows = data.map((p) => [
     p.categoria,
     p.nombre,
@@ -151,11 +148,62 @@ export async function seedPrices(data: Price[]): Promise<void> {
   });
 }
 
+// ── Locales (CRM) ───────────────────────────────────────────────────────────
+
+export async function searchLocalByPhone(telefono: string): Promise<LocalCustomer | null> {
+  const sheets = await getSheets();
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId: SPREADSHEET_ID,
+    range: 'Locales!A2:D',
+  });
+
+  const rows = response.data.values || [];
+  for (const row of rows) {
+    if (row[2] === telefono) {
+      return {
+        nombre: row[0] || '',
+        apellido: row[1] || '',
+        telefono: row[2] || '',
+        fecha_registro: row[3] || '',
+      };
+    }
+  }
+  return null;
+}
+
+export async function registerLocal(
+  nombre: string,
+  apellido: string,
+  telefono: string
+): Promise<LocalCustomer> {
+  const sheets = await getSheets();
+
+  const now = new Date();
+  const fecha = now.toLocaleDateString('es-MX', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: SPREADSHEET_ID,
+    range: 'Locales!A:D',
+    valueInputOption: 'USER_ENTERED',
+    requestBody: {
+      values: [[nombre, apellido, telefono, fecha]],
+    },
+  });
+
+  return { nombre, apellido, telefono, fecha_registro: fecha };
+}
+
+// ── Inventario ───────────────────────────────────────────────────────────────
+
 export async function getProduct(qrId: string): Promise<Product | null> {
   const sheets = await getSheets();
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: SPREADSHEET_ID,
-    range: 'Inventario!A2:M',
+    range: 'Inventario!A2:O',
   });
 
   const rows = response.data.values || [];
@@ -175,11 +223,9 @@ export async function registerProduct(
   registradoPor: string
 ): Promise<Product> {
   const prices = await getPrices();
-  // Find price by product name, use precio_local if set, otherwise precio_mxn
   const priceEntry = prices.find((p) => p.nombre === tipoCarne);
-  const precioKg = priceEntry
-    ? (priceEntry.precio_local > 0 ? priceEntry.precio_local : priceEntry.precio_mxn)
-    : 0;
+  // Registration always uses precio_mxn (normal price)
+  const precioKg = priceEntry ? priceEntry.precio_mxn : 0;
   const precioTotal = pesoKg * precioKg;
 
   const now = new Date();
@@ -198,7 +244,7 @@ export async function registerProduct(
   const sheets = await getSheets();
   await sheets.spreadsheets.values.append({
     spreadsheetId: SPREADSHEET_ID,
-    range: 'Inventario!A:M',
+    range: 'Inventario!A:O',
     valueInputOption: 'USER_ENTERED',
     requestBody: {
       values: [
@@ -211,11 +257,13 @@ export async function registerProduct(
           'Disponible',
           fechaRegistro,
           horaRegistro,
-          registradoPor, // registrado_por
+          registradoPor,
           '', // fecha_venta
           '', // hora_venta
           '', // vendido_por
           '', // notas
+          '', // tipo_precio
+          '', // cliente_tel
         ],
       ],
     },
@@ -234,24 +282,54 @@ export async function registerProduct(
   };
 }
 
-export async function markSold(qrId: string, vendidoPor?: string): Promise<void> {
+export async function markSold(
+  qrId: string,
+  vendidoPor?: string,
+  tipoPrecio?: 'Normal' | 'Local',
+  clienteTel?: string
+): Promise<void> {
   const sheets = await getSheets();
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: SPREADSHEET_ID,
-    range: 'Inventario!A2:M',
+    range: 'Inventario!A2:O',
   });
 
   const rows = response.data.values || [];
   let rowIndex = -1;
+  let product: string[] | null = null;
   for (let i = 0; i < rows.length; i++) {
     if (rows[i][0] === qrId) {
-      rowIndex = i + 2; // +2 because data starts at row 2 (1-indexed)
+      rowIndex = i + 2;
+      product = rows[i];
       break;
     }
   }
 
-  if (rowIndex === -1) {
+  if (rowIndex === -1 || !product) {
     throw new Error(`Product with QR ID ${qrId} not found`);
+  }
+
+  // If selling at local price, recalculate precio_kg and precio_total
+  if (tipoPrecio === 'Local') {
+    const prices = await getPrices();
+    const tipoCarne = product[1];
+    const pesoKg = parseFloat(product[2]) || 0;
+    const priceEntry = prices.find((p) => p.nombre === tipoCarne);
+
+    if (priceEntry && priceEntry.precio_local > 0) {
+      const newPrecioKg = priceEntry.precio_local;
+      const newPrecioTotal = pesoKg * newPrecioKg;
+
+      // Update precio_kg (D) and precio_total (E)
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: SPREADSHEET_ID,
+        range: `Inventario!D${rowIndex}:E${rowIndex}`,
+        valueInputOption: 'USER_ENTERED',
+        requestBody: {
+          values: [[newPrecioKg, newPrecioTotal]],
+        },
+      });
+    }
   }
 
   const now = new Date();
@@ -267,7 +345,7 @@ export async function markSold(qrId: string, vendidoPor?: string): Promise<void>
     hour12: false,
   });
 
-  // Update estatus (column F), fecha_venta (column J), hora_venta (column K), vendido_por (column L)
+  // Update estatus (F), fecha_venta (J), hora_venta (K), vendido_por (L), tipo_precio (N), cliente_tel (O)
   await sheets.spreadsheets.values.update({
     spreadsheetId: SPREADSHEET_ID,
     range: `Inventario!F${rowIndex}`,
@@ -283,6 +361,15 @@ export async function markSold(qrId: string, vendidoPor?: string): Promise<void>
     valueInputOption: 'USER_ENTERED',
     requestBody: {
       values: [[fechaVenta, horaVenta, vendidoPor || '']],
+    },
+  });
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `Inventario!N${rowIndex}:O${rowIndex}`,
+    valueInputOption: 'USER_ENTERED',
+    requestBody: {
+      values: [[tipoPrecio || 'Normal', clienteTel || '']],
     },
   });
 }
@@ -305,7 +392,7 @@ export async function getAllProducts(): Promise<Product[]> {
   const sheets = await getSheets();
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: SPREADSHEET_ID,
-    range: 'Inventario!A2:M',
+    range: 'Inventario!A2:O',
   });
 
   const rows = response.data.values || [];
@@ -327,5 +414,7 @@ function rowToProduct(row: string[]): Product {
     hora_venta: row[10] || undefined,
     vendido_por: row[11] || undefined,
     notas: row[12] || undefined,
+    tipo_precio: (row[13] as 'Normal' | 'Local') || undefined,
+    cliente_tel: row[14] || undefined,
   };
 }

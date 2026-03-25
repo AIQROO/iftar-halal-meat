@@ -12,6 +12,8 @@ export interface Product {
   hora_venta?: string;
   vendido_por?: string;
   notas?: string;
+  tipo_precio?: 'Normal' | 'Local';
+  cliente_tel?: string;
 }
 
 export interface Price {
@@ -26,6 +28,13 @@ export interface Price {
 export interface PriceCategory {
   categoria: string;
   productos: Price[];
+}
+
+export interface LocalCustomer {
+  nombre: string;
+  apellido: string;
+  telefono: string;
+  fecha_registro: string;
 }
 
 export interface DashboardStats {
