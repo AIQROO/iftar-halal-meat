@@ -84,13 +84,30 @@ export default function QrPrintView() {
         margin: 0;
       }
       @media print {
-        body {
+        html, body {
           background: white !important;
+          margin: 0 !important;
+          padding: 0 !important;
         }
+        /* El layout del admin envuelve esta vista; al imprimir no queremos
+           ni la barra inferior fija ni los paddings del shell. */
+        body > div > nav,
+        body > div > main > .qr-print-chrome,
         .qr-print-chrome {
           display: none !important;
         }
+        body > div,
+        body > div > main {
+          padding: 0 !important;
+          margin: 0 !important;
+          min-height: 0 !important;
+        }
         .qr-print-root {
+          padding: 0 !important;
+          margin: 0 !important;
+          min-height: 0 !important;
+        }
+        .qr-print-sheet {
           padding: 0 !important;
           margin: 0 !important;
         }
@@ -252,7 +269,7 @@ export default function QrPrintView() {
         )}
       </div>
 
-      <div className="bg-white text-black print:bg-white px-2 py-4 print:py-0">
+      <div className="qr-print-sheet bg-white text-black print:bg-white px-2 py-4 print:py-0">
         <div className="mx-auto max-w-[120mm]">
           {labels.map((row, index) => (
             <div

@@ -15,39 +15,31 @@ export type QrPrintPreset = {
   paddingMm: number;
 };
 
-/** Orden: Ribetec RT-420BE primero (opción por defecto en la UI). */
+/** Orden: Ribetec RT-420BE TD01 primero (opción por defecto en la UI). */
 export const QR_PRINT_PRESETS: QrPrintPreset[] = [
   {
-    id: 'ribetec-rt420be-40x30',
-    label: 'Ribetec RT-420BE — 40 × 30 mm',
-    widthMm: 40,
-    heightMm: 30,
-    qrSizeMm: 22,
-    paddingMm: 2,
+    id: 'ribetec-td01-76x51',
+    label: 'Ribetec RT-420BE — TD01 76 × 51 mm',
+    widthMm: 76,
+    heightMm: 51,
+    qrSizeMm: 40,
+    paddingMm: 3,
   },
   {
-    id: 'ribetec-rt420be-50x30',
-    label: 'Ribetec RT-420BE — 50 × 30 mm',
-    widthMm: 50,
-    heightMm: 30,
-    qrSizeMm: 24,
-    paddingMm: 2,
+    id: 'shipping-2x4in',
+    label: 'Térmica 2 × 4 in (51 × 102 mm)',
+    widthMm: 51,
+    heightMm: 102,
+    qrSizeMm: 38,
+    paddingMm: 3,
   },
   {
-    id: 'generica-60x40',
-    label: 'Etiqueta genérica — 60 × 40 mm',
-    widthMm: 60,
-    heightMm: 40,
-    qrSizeMm: 28,
-    paddingMm: 2,
-  },
-  {
-    id: 'generica-50x25',
-    label: 'Etiqueta genérica — 50 × 25 mm',
-    widthMm: 50,
-    heightMm: 25,
-    qrSizeMm: 18,
-    paddingMm: 1.5,
+    id: 'shipping-4x6in',
+    label: 'Térmica 4 × 6 in (102 × 152 mm)',
+    widthMm: 102,
+    heightMm: 152,
+    qrSizeMm: 70,
+    paddingMm: 4,
   },
 ];
 
