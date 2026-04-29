@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { Product, PriceCategory, Price } from '@/lib/types';
 import QrScanner from '@/components/QrScanner';
+import { parseScannedQrPayload } from '@/lib/qr-serie';
 
 type RegisterStep = 'scan' | 'form' | 'success';
 
@@ -65,7 +66,7 @@ export default function RegisterPage() {
   };
 
   const handleScan = (result: string) => {
-    setQrId(result);
+    setQrId(parseScannedQrPayload(result));
     setError('');
     setStep('form');
   };

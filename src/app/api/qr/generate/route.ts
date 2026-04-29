@@ -2,7 +2,11 @@ import { NextResponse } from 'next/server';
 import QRCode from 'qrcode';
 import archiver from 'archiver';
 import { PassThrough } from 'stream';
-import { formatQrSerieId, QR_SERIE_MAX_TOTAL } from '@/lib/qr-serie';
+import {
+  buildQrScanUrl,
+  formatQrSerieId,
+  QR_SERIE_MAX_TOTAL,
+} from '@/lib/qr-serie';
 
 export async function POST(request: Request) {
   try {
@@ -52,11 +56,14 @@ export async function POST(request: Request) {
       archive.on('error', reject);
     });
 
+    const origin = new URL(request.url).origin;
+
     // Generar PNG en memoria (rangos muy grandes pueden tardar o consumir RAM).
     for (let i = 0; i < cantidad; i++) {
       const num = startNum + i;
       const qrId = formatQrSerieId(num);
-      const qrBuffer = await QRCode.toBuffer(qrId, {
+      const scanUrl = buildQrScanUrl(origin, qrId);
+      const qrBuffer = await QRCode.toBuffer(scanUrl, {
         type: 'png',
         width: 300,
         margin: 2,

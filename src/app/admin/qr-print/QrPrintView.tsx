@@ -8,6 +8,7 @@ import {
   type QrPrintPreset,
 } from '@/lib/qr-print-presets';
 import {
+  buildQrScanUrl,
   formatQrSerieId,
   QR_SERIE_MAX_TOTAL,
   QR_SERIE_WARN_FROM,
@@ -166,7 +167,8 @@ export default function QrPrintView() {
           if (cancelled) return;
 
           const id = formatQrSerieId(n);
-          const dataUrl = await QRCode.toDataURL(id, {
+          const scanUrl = buildQrScanUrl(window.location.origin, id);
+          const dataUrl = await QRCode.toDataURL(scanUrl, {
             width: px,
             margin: 2,
             errorCorrectionLevel: 'M',

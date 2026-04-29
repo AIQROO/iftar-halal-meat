@@ -4,6 +4,7 @@ import { useState, useCallback, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import type { Product, LocalCustomer, Price } from '@/lib/types';
+import { parseScannedQrPayload } from '@/lib/qr-serie';
 
 const QrScanner = dynamic(() => import('@/components/QrScanner'), {
   ssr: false,
@@ -151,9 +152,10 @@ export default function POSPage() {
   };
 
   const handleScan = useCallback(async (result: string) => {
+    const qrId = parseScannedQrPayload(result);
     setView('loading');
     try {
-      const res = await fetch(`/api/product?id=${encodeURIComponent(result)}`);
+      const res = await fetch(`/api/product?id=${encodeURIComponent(qrId)}`);
       if (res.status === 404) {
         setErrorMsg('Producto no registrado');
         setView('error');
